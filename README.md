@@ -1,171 +1,63 @@
-# Climate Data Explorer
+# Heathrow Climate Explorer
 
-A production-ready **multi-agent GenAI climate intelligence dashboard** built with **Streamlit**, **Azure OpenAI**, and a **sequential multi-agent workflow**.
+A simple, production-style **multi-agent GenAI dashboard** built with **Streamlit**, **Azure OpenAI**, **pandas**, and **matplotlib**.
 
-## What this project does
+It combines multiple London Heathrow weather CSV files, analyses climate trends, detects anomalies, and generates an AI-assisted climate report.
 
-This project analyzes historical weather data from **London Heathrow weather station** and turns it into:
+## Project requirements covered
 
-- a modern SaaS-style dashboard
-- seasonal trend insights
-- anomaly detection
-- practical recommendations
-- downloadable JSON and CSV outputs
+- Real dataset with more than 500 rows
+- 3+ specialised agents implemented as classes
+- Sequential multi-agent pipeline
+- Azure OpenAI client used as the LLM client
+- 2 custom tools
+- Final structured output and visualisations
+- Safety guard with max iterations and graceful fallback handling
+- Ready for Streamlit Community Cloud deployment
 
-## Project requirements coverage
+## Agents
 
-This starter pack satisfies the brief as follows:
+- **DataLoaderAgent**: reviews data quality and coverage
+- **TrendAnalystAgent**: explains monthly climate patterns
+- **AnomalyDetectorAgent**: interprets unusual events
+- **ReportWriterAgent**: generates the final report
 
-- **Real dataset**: bundled Heathrow climate data combined across multiple CSV files
-- **At least 3 specialised agents**: `DataLoaderAgent`, `TrendAnalystAgent`, `AnomalyDetectorAgent`, `PolicyAdvisorAgent`
-- **At least 1 multi-agent pattern**: sequential pipeline via `ClimateOrchestrator`
-- **Azure OpenAI**: client helper wired for Azure OpenAI v1-style endpoint setup
-- **At least 2 tools**: `compute_summary_stats`, `detect_outliers`, `generate_chart_metadata`
-- **Final structured output**: JSON report + visualizations
-- **Safety**: max-iteration guard and graceful error envelopes
-- **Bonus deployment path**: GitHub + Streamlit Community Cloud ready
+## Tools
 
-## Folder structure
-
-```text
-climate-data-explorer/
-├── app.py
-├── requirements.txt
-├── README.md
-├── .gitignore
-├── .streamlit/
-│   └── config.toml
-├── data/
-│   └── export_combined.csv
-├── agents/
-│   ├── base_agent.py
-│   ├── data_loader_agent.py
-│   ├── trend_analyst_agent.py
-│   ├── anomaly_detector_agent.py
-│   └── policy_advisor_agent.py
-├── core/
-│   ├── azure_client.py
-│   ├── orchestrator.py
-│   ├── prompts.py
-│   ├── safety.py
-│   └── tools.py
-└── utils/
-    ├── export_helpers.py
-    ├── preprocessing.py
-    └── visualizations.py
-```
-
-## How the agents work
-
-### 1. DataLoaderAgent
-- validates schema
-- cleans and enriches the dataset
-- summarizes coverage, missingness, and engineered features
-
-### 2. TrendAnalystAgent
-- explains seasonal temperature, rainfall, sunshine, pressure, and wind patterns
-- produces interpretable climate insights
-
-### 3. AnomalyDetectorAgent
-- detects unusual temperature, rainfall, wind, and pressure events
-- ranks top anomaly days
-
-### 4. PolicyAdvisorAgent
-- turns findings into plain-English recommendations
-- useful for operations, planning, and public communication
-
-## Multi-agent pattern
-
-This project uses a **sequential pipeline**:
-
-```text
-DataLoaderAgent → TrendAnalystAgent → AnomalyDetectorAgent → PolicyAdvisorAgent
-```
-
-## Azure OpenAI setup
-
-Add the following secrets in your local `.streamlit/secrets.toml` or in **Streamlit Community Cloud**:
-
-```toml
-AZURE_OPENAI_API_KEY = "your_key"
-AZURE_OPENAI_ENDPOINT = "https://your-resource-name.openai.azure.com"
-AZURE_OPENAI_DEPLOYMENT = "your_deployment_name"
-```
-
-The app will still run without Azure configured, but agent outputs will fall back to deterministic heuristic mode for demo/testing.
+- `get_climate_summary(df)`
+- `detect_anomalies(df, z_threshold=2.0)`
 
 ## Local setup
 
-### 1. Create and activate a virtual environment
-
-```bash
-python -m venv .venv
-```
-
-Windows:
-
-```bash
-.venv\Scripts\activate
-```
-
-macOS/Linux:
-
-```bash
-source .venv/bin/activate
-```
-
-### 2. Install dependencies
-
 ```bash
 pip install -r requirements.txt
-```
-
-### 3. Run the app
-
-```bash
 streamlit run app.py
 ```
 
-## Streamlit Community Cloud deployment
+## Streamlit secrets
 
-### 1. Push the project to GitHub
+Create `.streamlit/secrets.toml` locally, or paste the same values into Streamlit Cloud Secrets:
 
-Initialize git and push to your repository.
+```toml
+AZURE_OPENAI_API_KEY="your_key_here"
+AZURE_OPENAI_ENDPOINT="https://your-resource-name.openai.azure.com/"
+AZURE_OPENAI_DEPLOYMENT="your_deployment_name"
+AZURE_OPENAI_API_VERSION="2024-02-01"
+```
 
-### 2. Deploy on Streamlit
+## Recommended GitHub upload order
 
-- Go to Streamlit Community Cloud
-- Click **New app**
-- Select your GitHub repo
-- Set **Main file path** to `app.py`
-- Add your Azure secrets in the app settings
-- Deploy
+1. Upload the full project folder
+2. Make sure `app.py` is in the root
+3. Make sure `requirements.txt` is in the root
+4. Do **not** upload secrets
+5. Deploy from GitHub to Streamlit Community Cloud
 
-## Suggested demo flow for presentation
+## Suggested demo flow
 
-1. Open the app
-2. Show the Heathrow combined dataset metrics
-3. Run the multi-agent analysis
-4. Walk through overview charts
-5. Show the anomaly overlay
-6. Open the agent report
-7. Download the JSON report
-
-## Notes on the bundled data
-
-This starter pack includes a combined Heathrow dataset spanning:
-
-- 2023
-- 2024
-- 2025
-- 2026 (partial)
-
-That gives you enough rows to satisfy the minimum dataset size requirement.
-
-## Suggested next upgrades
-
-- add richer prompt engineering for each agent
-- add user-selectable anomaly metric in the sidebar
-- add PDF report export
-- add a small chat interface for follow-up questions
-- add unit tests before final submission
+1. Open the Overview tab
+2. Show the KPI cards
+3. Show the monthly charts
+4. Open Anomalies
+5. Run the multi-agent workflow
+6. Download the final structured summary

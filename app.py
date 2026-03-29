@@ -1,243 +1,221 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import List
 
-import pandas as pd
 import streamlit as st
 
-from core.azure_client import azure_is_configured
-from core.orchestrator import ClimateOrchestrator
-from utils.export_helpers import to_pretty_json
-from utils.preprocessing import clean_climate_data, combine_csv_files, validate_schema
-from utils.visualizations import anomaly_overlay_chart, correlation_heatmap, line_chart, monthly_bar_chart
+from agents.anomaly_detector_agent import AnomalyDetectorAgent
+from agents.data_loader_agent import DataLoaderAgent
+from agents.report_writer_agent import ReportWriterAgent
+from agents.trend_analyst_agent import TrendAnalystAgent
+from tools.chart_tools import plot_anomalies, plot_monthly_rainfall, plot_monthly_temperature
+from tools.data_tools import detect_anomalies, get_climate_summary
+from utils.azure_client import azure_config_available
+from utils.preprocessing import load_and_combine_csvs
 
-st.set_page_config(page_title="Climate Data Explorer", layout="wide", page_icon="🌦️")
 
-CSS = """
-<style>
-    .block-container {max-width: 1400px; padding-top: 1.2rem; padding-bottom: 2rem;}
-    [data-testid="stSidebar"] {background: linear-gradient(180deg, #0F172A 0%, #111827 100%);}
-    [data-testid="stSidebar"] * {color: #E5E7EB;}
-    .hero {
-        background: linear-gradient(135deg, rgba(79,70,229,.08), rgba(14,165,233,.10));
-        border: 1px solid rgba(15,23,42,.08);
-        border-radius: 24px; padding: 1.35rem 1.4rem; margin-bottom: 1rem;
+st.set_page_config(page_title="Heathrow Climate Explorer", page_icon="🌦️", layout="wide")
+
+
+@st.cache_data
+def get_data():
+    data_dir = Path(__file__).parent / "data"
+    files = sorted(data_dir.glob("*.csv"))
+    return load_and_combine_csvs(files)
+
+
+def inject_css() -> None:
+    st.markdown(
+        """
+        <style>
+        .block-container {padding-top: 1.5rem; padding-bottom: 2rem;}
+        .hero {
+            padding: 1.25rem 1.4rem;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 20px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+            margin-bottom: 1rem;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.65rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+        }
+        .metric-card {
+            background: white;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 18px;
+            padding: 1rem;
+            box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
+        }
+        .muted {color: #475569;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_metric_card(label: str, value: str, caption: str) -> None:
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="muted">{label}</div>
+            <div style="font-size:1.8rem;font-weight:700;margin:0.25rem 0;">{value}</div>
+            <div class="muted" style="font-size:0.9rem;">{caption}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def run_multi_agent_pipeline(summary: dict, anomalies: dict) -> dict:
+    data_agent = DataLoaderAgent()
+    trend_agent = TrendAnalystAgent()
+    anomaly_agent = AnomalyDetectorAgent()
+    report_agent = ReportWriterAgent()
+
+    data_result = data_agent.run(summary)
+    trend_result = trend_agent.run(summary)
+    anomaly_result = anomaly_agent.run(anomalies)
+
+    report_context = {
+        "data_quality": data_result,
+        "trend_analysis": trend_result,
+        "anomaly_analysis": anomaly_result,
+        "summary": summary,
+        "anomalies": anomalies,
     }
-    .hero h1 {margin: 0; font-size: 2rem;}
-    .hero p {margin: .35rem 0 0 0; color: #475569;}
-    .metric-card {
-        background: #FFFFFF; border: 1px solid rgba(15,23,42,.08); border-radius: 20px;
-        padding: 1rem 1.1rem; box-shadow: 0 12px 36px rgba(15,23,42,.06);
+    report_result = report_agent.run(report_context)
+
+    return {
+        "data_loader": data_result,
+        "trend_analyst": trend_result,
+        "anomaly_detector": anomaly_result,
+        "report_writer": report_result,
     }
-    .section-card {
-        background: #FFFFFF; border: 1px solid rgba(15,23,42,.08); border-radius: 22px;
-        padding: 1rem 1.1rem; box-shadow: 0 10px 28px rgba(15,23,42,.05);
-    }
-    .pill {
-        display: inline-block; padding: .3rem .65rem; border-radius: 999px;
-        background: rgba(79,70,229,.09); color: #4338CA; font-size: .85rem; margin-right: .35rem;
-    }
-</style>
+
+
+def build_fallback_report(summary: dict, anomalies: dict) -> str:
+    metrics = summary["metrics"]
+    return f"""
+### Climate Report
+
+**Data coverage**
+- Records: {summary['records']}
+- Period: {summary['date_range']['start']} to {summary['date_range']['end']}
+
+**Key trends**
+- Average temperature: {metrics['tavg']['mean']} °C
+- Total rainfall is distributed unevenly across months, with wetter and drier periods visible in the rainfall chart.
+- Sunshine totals and wind speed fluctuate seasonally, which is expected in a daily weather dataset.
+
+**Anomaly findings**
+- Temperature anomalies: {anomalies['counts']['tavg']}
+- Rainfall anomalies: {anomalies['counts']['prcp']}
+- Wind anomalies: {anomalies['counts']['wspd']}
+
+**Recommended next steps**
+- Compare warm and wet periods month by month.
+- Extend the dashboard with forecasting or station-to-station comparison.
+- Validate AI summaries against charts before using them in reports.
 """
 
-st.markdown(CSS, unsafe_allow_html=True)
 
-DEFAULT_FILES = [
-    "data/export_combined.csv",
-]
+def main():
+    inject_css()
+    df = get_data()
 
-
-def load_default_dataset() -> pd.DataFrame:
-    root = Path(__file__).parent
-    full_paths = [root / path for path in DEFAULT_FILES if (root / path).exists()]
-    if not full_paths:
-        return pd.DataFrame()
-    return combine_csv_files([str(full_paths[0])]) if len(full_paths) == 1 else combine_csv_files([str(p) for p in full_paths])
-
-
-def apply_filters(df: pd.DataFrame, start_date, end_date, selected_metrics: List[str]) -> pd.DataFrame:
-    filtered = df[(df["date"].dt.date >= start_date) & (df["date"].dt.date <= end_date)].copy()
-    keep = ["date", "year", "month", "month_name", "quarter", "temp_range", "rain_flag", "high_wind_flag", "tavg_7d", "prcp_7d"]
-    keep += [metric for metric in selected_metrics if metric in filtered.columns]
-    keep = [col for col in keep if col in filtered.columns]
-    return filtered[keep].copy()
-
-
-with st.sidebar:
-    st.markdown("## Climate Data Explorer")
-    st.caption("Multi-Agent Weather Intelligence")
-    uploaded_files = st.file_uploader(
-        "Upload one or more CSV files",
-        type=["csv"],
-        accept_multiple_files=True,
-        help="Use this to replace or extend the bundled Heathrow dataset.",
-    )
-    user_question = st.text_area(
-        "Analysis goal",
-        value="Analyse seasonal climate patterns, detect anomalies, and produce practical planning recommendations.",
-        height=120,
-    )
-    anomaly_sensitivity = st.slider("Anomaly sensitivity (z-score)", min_value=2.0, max_value=4.0, value=2.5, step=0.1)
-    run_analysis = st.button("Run Multi-Agent Analysis", use_container_width=True)
-
-st.markdown(
-    """
-    <div class="hero">
-        <span class="pill">Production-grade Streamlit UI</span>
-        <span class="pill">Sequential Multi-Agent Pipeline</span>
-        <span class="pill">Azure OpenAI Ready</span>
-        <h1>Climate Data Explorer</h1>
-        <p>Explore London Heathrow climate trends, anomalies, and action-oriented recommendations through a modern SaaS-style dashboard.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-if uploaded_files:
-    raw_df = pd.concat([pd.read_csv(file) for file in uploaded_files], ignore_index=True)
-    df = clean_climate_data(raw_df)
-else:
-    df = load_default_dataset()
-
-if df.empty:
-    st.error("No dataset found. Upload at least one CSV or place export_combined.csv in the data folder.")
-    st.stop()
-
-valid, missing_cols = validate_schema(df)
-if not valid:
-    st.error(f"Dataset is missing required columns: {missing_cols}")
-    st.stop()
-
-min_date = df["date"].min().date()
-max_date = df["date"].max().date()
-
-col_a, col_b, col_c = st.columns([1, 1, 2])
-with col_a:
-    start_date = st.date_input("Start date", value=min_date, min_value=min_date, max_value=max_date)
-with col_b:
-    end_date = st.date_input("End date", value=max_date, min_value=min_date, max_value=max_date)
-with col_c:
-    selected_metrics = st.multiselect(
-        "Metrics",
-        options=["tavg", "tmin", "tmax", "prcp", "wspd", "wpgt", "pres", "tsun", "temp_range"],
-        default=["tavg", "prcp", "wspd", "pres", "tsun"],
+    st.markdown(
+        f"""
+        <div class="hero">
+            <div class="badge">{'Azure OpenAI Connected' if azure_config_available() else 'Azure OpenAI Not Configured'}</div>
+            <h1 style="margin:0.7rem 0 0.2rem 0;">Heathrow Climate Explorer</h1>
+            <p class="muted" style="margin:0;">A production-style multi-agent dashboard for trend analysis, anomaly detection, and AI reporting from London Heathrow climate data.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-filtered_df = apply_filters(df, start_date, end_date, selected_metrics)
+    st.sidebar.title("Controls")
+    min_date, max_date = df["date"].min().date(), df["date"].max().date()
+    selected_range = st.sidebar.date_input("Date range", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+    threshold = st.sidebar.slider("Anomaly threshold (z-score)", min_value=1.5, max_value=3.5, value=2.0, step=0.1)
 
-cards = st.columns(6)
-metrics = {
-    "Records": f"{len(filtered_df):,}",
-    "Years": f"{filtered_df['year'].nunique()}",
-    "Avg temp": f"{filtered_df['tavg'].mean():.1f} °C",
-    "Total rain": f"{filtered_df['prcp'].sum():.1f} mm",
-    "Avg pressure": f"{filtered_df['pres'].mean():.1f} hPa",
-    "Avg wind": f"{filtered_df['wspd'].mean():.1f} km/h",
-}
-for col, (label, value) in zip(cards, metrics.items()):
-    with col:
-        st.markdown(f'<div class="metric-card"><div style="color:#64748B;font-size:.9rem;">{label}</div><div style="font-size:1.45rem;font-weight:700;">{value}</div></div>', unsafe_allow_html=True)
+    if isinstance(selected_range, tuple) and len(selected_range) == 2:
+        start_date, end_date = selected_range
+    else:
+        start_date, end_date = min_date, max_date
 
-if run_analysis or "analysis_payload" not in st.session_state:
-    orchestrator = ClimateOrchestrator()
-    with st.spinner("Running agents..."):
-        payload = orchestrator.run(filtered_df.copy(), user_question)
-    st.session_state["analysis_payload"] = payload
-else:
-    payload = st.session_state["analysis_payload"]
+    filtered_df = df[(df["date"].dt.date >= start_date) & (df["date"].dt.date <= end_date)].copy()
+    summary = get_climate_summary(filtered_df)
+    anomalies = detect_anomalies(filtered_df, z_threshold=threshold)
 
-analysis_payload = st.session_state.get("analysis_payload", {})
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        render_metric_card("Avg Temp", f"{summary['metrics']['tavg']['mean']} °C", "Daily average across selection")
+    with col2:
+        render_metric_card("Total Rainfall", f"{round(filtered_df['prcp'].sum(), 1)} mm", "Cumulative precipitation")
+    with col3:
+        render_metric_card("Avg Wind Speed", f"{summary['metrics']['wspd']['mean']} km/h", "Mean daily wind speed")
+    with col4:
+        render_metric_card("Total Sunshine", f"{int(filtered_df['tsun'].fillna(0).sum())} min", "Sum of recorded sunshine")
 
-# adjust anomaly chart using selected sensitivity in UI for display purposes
-from core.tools import detect_outliers
-anomaly_payload = detect_outliers(filtered_df, "tavg", anomaly_sensitivity)
-anomaly_dates = [item["date"] for item in anomaly_payload.get("anomalies", [])]
+    tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Trends", "Anomalies", "AI Report"])
 
-overview_tab, trends_tab, anomalies_tab, report_tab, json_tab = st.tabs([
-    "Overview", "Trends", "Anomalies", "Agent Report", "JSON Output"
-])
+    with tab1:
+        st.subheader("Dataset Overview")
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.write({
+                "records": summary["records"],
+                "date_range": summary["date_range"],
+                "missing_values": summary["missing_values"],
+            })
+        with c2:
+            st.dataframe(filtered_df.tail(10), use_container_width=True)
 
-with overview_tab:
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.pyplot(line_chart(filtered_df, "tavg", "Daily Average Temperature"), clear_figure=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.pyplot(monthly_bar_chart(filtered_df, "prcp", "Monthly Rainfall Totals", agg="sum"), clear_figure=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.pyplot(monthly_bar_chart(filtered_df, "tsun", "Monthly Sunshine Duration", agg="sum"), clear_figure=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with tab2:
+        st.subheader("Climate Trends")
+        st.pyplot(plot_monthly_temperature(filtered_df), use_container_width=True)
+        st.pyplot(plot_monthly_rainfall(filtered_df), use_container_width=True)
 
-with trends_tab:
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.pyplot(monthly_bar_chart(filtered_df, "tavg", "Monthly Average Temperature", agg="mean"), clear_figure=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        heatmap_cols = [col for col in ["tavg", "prcp", "wspd", "pres", "tsun", "temp_range"] if col in filtered_df.columns]
-        st.pyplot(correlation_heatmap(filtered_df, heatmap_cols, "Correlation Heatmap"), clear_figure=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+    with tab3:
+        st.subheader("Detected Anomalies")
+        st.pyplot(plot_anomalies(filtered_df, threshold=threshold), use_container_width=True)
+        st.json(anomalies)
 
-with anomalies_tab:
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.pyplot(anomaly_overlay_chart(filtered_df, "tavg", anomaly_dates, "Temperature Anomaly Overlay"), clear_figure=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.subheader("Top anomalies")
-        if anomaly_payload.get("anomalies"):
-            st.dataframe(pd.DataFrame(anomaly_payload["anomalies"]), use_container_width=True, hide_index=True)
+    with tab4:
+        st.subheader("Multi-Agent Report")
+        st.caption("Safety note: AI summaries can be wrong. Cross-check conclusions with charts and raw data.")
+        if st.button("Run multi-agent workflow", type="primary"):
+            with st.spinner("Running agents..."):
+                agent_outputs = run_multi_agent_pipeline(summary, anomalies)
+
+            st.markdown("#### Agent Outputs")
+            for key, value in agent_outputs.items():
+                with st.expander(key.replace("_", " ").title(), expanded=(key == "report_writer")):
+                    st.json(value)
+
+            final_report = agent_outputs["report_writer"].get("content")
+            if not final_report:
+                final_report = build_fallback_report(summary, anomalies)
+            st.markdown(final_report)
+
+            st.download_button(
+                label="Download structured summary",
+                data=str({"summary": summary, "anomalies": anomalies, "agents": agent_outputs}),
+                file_name="climate_report.json",
+                mime="application/json",
+            )
         else:
-            st.info("No anomalies found at the current sensitivity level.")
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown(build_fallback_report(summary, anomalies))
 
-with report_tab:
-    for section_name in ["loader", "trend", "anomalies", "policy"]:
-        section = analysis_payload.get(section_name, {})
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.subheader(section_name.replace("_", " ").title())
-        if "summary" in section:
-            st.write(section["summary"])
-        elif "raw" in section:
-            st.write(section["raw"])
-        for key in ["bullets", "risks", "recommendations"]:
-            values = section.get(key, [])
-            if values:
-                st.markdown(f"**{key.title()}**")
-                for item in values:
-                    st.write(f"- {item}")
-        st.markdown('</div>', unsafe_allow_html=True)
 
-with json_tab:
-    report_json = {
-        "dataset": {
-            "rows": int(len(filtered_df)),
-            "date_start": str(filtered_df["date"].min().date()),
-            "date_end": str(filtered_df["date"].max().date()),
-            "azure_configured": azure_is_configured(),
-        },
-        "analysis": analysis_payload,
-        "display_anomalies": anomaly_payload,
-    }
-    st.code(to_pretty_json(report_json), language="json")
-    st.download_button(
-        "Download JSON Report",
-        data=to_pretty_json(report_json),
-        file_name="climate_report.json",
-        mime="application/json",
-    )
-    st.download_button(
-        "Download Cleaned Dataset",
-        data=filtered_df.to_csv(index=False),
-        file_name="cleaned_climate_dataset.csv",
-        mime="text/csv",
-    )
+if __name__ == "__main__":
+    main()
