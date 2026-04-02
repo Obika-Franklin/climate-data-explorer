@@ -74,3 +74,22 @@ def detect_anomalies(df: pd.DataFrame, z_threshold: float = 2.0) -> dict[str, An
         anomaly_output["events"][col] = events[:15]
 
     return anomaly_output
+
+def get_monthly_trends(df: pd.DataFrame) -> dict:
+    monthly = df.copy()
+    monthly["month"] = monthly["date"].dt.to_period("M").astype(str)
+
+    result = (
+        monthly.groupby("month")[["tavg", "prcp", "wspd", "pres", "tsun"]]
+        .agg({
+            "tavg": "mean",
+            "prcp": "sum",
+            "wspd": "mean",
+            "pres": "mean",
+            "tsun": "sum",
+        })
+        .round(2)
+        .reset_index()
+    )
+
+    return {"monthly_trends": result.to_dict(orient="records")}
