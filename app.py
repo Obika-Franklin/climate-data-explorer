@@ -72,6 +72,14 @@ def inject_css() -> None:
         div[data-testid="stMetric"] {
             border-radius: 16px;
         }
+        [data-testid="stExpander"] {
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 16px;
+            background: #ffffff;
+        }
+        [data-testid="stDataFrame"] {
+            border-radius: 16px;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -89,6 +97,75 @@ def render_metric_card(label: str, value: str, caption: str) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_summary_panel(summary: dict) -> None:
+    missing = summary.get("missing_values", {})
+    st.markdown("#### Summary")
+    st.markdown(
+        f"""
+        <div class="metric-card" style="margin-bottom: 1rem;">
+            <div class="muted">Records</div>
+            <div style="font-size:1.5rem;font-weight:700;">{summary.get("records", "N/A")}</div>
+        </div>
+
+        <div class="metric-card" style="margin-bottom: 1rem;">
+            <div class="muted">Date Range</div>
+            <div style="font-size:1rem;font-weight:600;">
+                {summary.get("date_range", {}).get("start", "N/A")} → {summary.get("date_range", {}).get("end", "N/A")}
+            </div>
+        </div>
+
+        <div class="metric-card">
+            <div class="muted">Missing Values</div>
+            <div style="font-size:0.95rem; line-height:1.8;">
+                <b>tavg:</b> {missing.get("tavg", 0)}<br>
+                <b>tmin:</b> {missing.get("tmin", 0)}<br>
+                <b>tmax:</b> {missing.get("tmax", 0)}<br>
+                <b>prcp:</b> {missing.get("prcp", 0)}<br>
+                <b>wspd:</b> {missing.get("wspd", 0)}<br>
+                <b>wpgt:</b> {missing.get("wpgt", 0)}<br>
+                <b>pres:</b> {missing.get("pres", 0)}<br>
+                <b>tsun:</b> {missing.get("tsun", 0)}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_agent_output(title: str, result: dict, expanded: bool = False) -> None:
+    status = result.get("status", "unknown")
+    content = result.get("content", "")
+    agent_name = result.get("agent", title)
+
+    status_color = {
+        "success": "#16a34a",
+        "failed": "#dc2626",
+        "fallback": "#ca8a04",
+        "unknown": "#475569",
+    }.get(status, "#475569")
+
+    with st.expander(title, expanded=expanded):
+        st.markdown(
+            f"""
+            <div class="metric-card" style="margin-bottom: 1rem;">
+                <div class="muted">Agent</div>
+                <div style="font-weight:700; margin-bottom:0.4rem;">{agent_name}</div>
+                <div class="muted">Status</div>
+                <div style="font-weight:700; color:{status_color}; margin-bottom:0.2rem;">{status.title()}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if content:
+            st.markdown(content)
+        else:
+            st.info("No content returned.")
+
+        with st.expander("Show raw output"):
+            st.json(result)
 
 
 def build_fallback_report(summary: dict, anomalies: dict, monthly_trends: dict) -> str:
@@ -114,24 +191,22 @@ def build_fallback_report(summary: dict, anomalies: dict, monthly_trends: dict) 
             pass
 
     return f"""
-### Climate Report
+### Dataset Summary
+- Records: **{summary.get('records', 'N/A')}**
+- Period: **{summary.get('date_range', {}).get('start', 'N/A')} to {summary.get('date_range', {}).get('end', 'N/A')}**
 
-**Dataset Summary**
-- Records: {summary.get('records', 'N/A')}
-- Period: {summary.get('date_range', {}).get('start', 'N/A')} to {summary.get('date_range', {}).get('end', 'N/A')}
-
-**Trend Insights**
+### Trend Insights
 - Average temperature across the selected range is **{temp_mean} °C**.
 - Average wind speed across the selected range is **{wind_mean} km/h**.
 - The warmest month in the current selection appears to be **{warmest_month}**.
 - The wettest month in the current selection appears to be **{wettest_month}**.
 
-**Anomaly Insights**
+### Anomaly Insights
 - Temperature anomalies detected: **{anomalies.get('counts', {}).get('tavg', 0)}**
 - Rainfall anomalies detected: **{anomalies.get('counts', {}).get('prcp', 0)}**
 - Wind anomalies detected: **{anomalies.get('counts', {}).get('wspd', 0)}**
 
-**Final Interpretation**
+### Final Interpretation
 - The filtered Heathrow dataset shows seasonal variability in temperature and rainfall.
 - Unusual events are highlighted through z-score anomaly detection and should be checked against the anomaly chart for context.
 - This fallback summary is generated locally when Azure OpenAI output is unavailable.
@@ -139,12 +214,6 @@ def build_fallback_report(summary: dict, anomalies: dict, monthly_trends: dict) 
 
 
 def run_multi_agent_pipeline(filtered_df, threshold: float) -> dict:
-    """
-    True LLM-agent flow:
-    - Agents use Azure OpenAI through BaseAgent
-    - The LLM can choose to call tools
-    - Tools are executed through the registry below
-    """
     tool_registry = {
         "get_climate_summary": lambda: get_climate_summary(filtered_df),
         "detect_anomalies": lambda z_threshold: detect_anomalies(filtered_df, z_threshold=z_threshold),
@@ -298,16 +367,12 @@ def main():
         c1, c2 = st.columns([1, 1])
 
         with c1:
-            st.write(
-                {
-                    "records": summary["records"],
-                    "date_range": summary["date_range"],
-                    "missing_values": summary["missing_values"],
-                }
-            )
+            render_summary_panel(summary)
 
         with c2:
-            st.dataframe(filtered_df.tail(10), use_container_width=True)
+            preview_cols = [col for col in ["date", "tavg", "tmin", "tmax", "prcp", "wspd"] if col in filtered_df.columns]
+            st.markdown("#### Recent Records")
+            st.dataframe(filtered_df[preview_cols].tail(10), use_container_width=True)
 
         st.markdown("### Temperature Trend")
         st.pyplot(plot_monthly_temperature(filtered_df), use_container_width=True)
@@ -318,15 +383,35 @@ def main():
         st.pyplot(plot_monthly_rainfall(filtered_df), use_container_width=True)
 
         with st.expander("Monthly Trend Data"):
-            st.dataframe(
-                monthly_trends.get("monthly_trends", []),
-                use_container_width=True,
-            )
+            trend_df = monthly_trends.get("monthly_trends", [])
+            st.dataframe(trend_df, use_container_width=True)
 
     with tab3:
         st.subheader("Detected Anomalies")
         st.pyplot(plot_anomalies(filtered_df, threshold=threshold), use_container_width=True)
-        st.json(anomalies)
+
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            render_metric_card(
+                "Temperature Anomalies",
+                str(anomalies.get("counts", {}).get("tavg", 0)),
+                "Detected using z-score threshold",
+            )
+        with col_b:
+            render_metric_card(
+                "Rainfall Anomalies",
+                str(anomalies.get("counts", {}).get("prcp", 0)),
+                "Detected using z-score threshold",
+            )
+        with col_c:
+            render_metric_card(
+                "Wind Anomalies",
+                str(anomalies.get("counts", {}).get("wspd", 0)),
+                "Detected using z-score threshold",
+            )
+
+        with st.expander("Show raw anomaly output"):
+            st.json(anomalies)
 
     with tab4:
         st.subheader("Multi-Agent AI Insights")
@@ -366,17 +451,18 @@ def main():
                         "report_writer": {"status": "fallback", "content": final_report},
                     }
 
-            st.markdown("#### Agent Outputs")
-            for key, value in agent_outputs.items():
-                with st.expander(key.replace("_", " ").title(), expanded=(key == "report_writer")):
-                    st.json(value)
-
             final_report = agent_outputs.get("report_writer", {}).get("content")
             if not final_report:
                 final_report = build_fallback_report(summary, anomalies, monthly_trends)
 
             st.subheader("📊 Final Insight")
             st.markdown(final_report)
+
+            st.markdown("#### Detailed Agent Outputs")
+            render_agent_output("Orchestrator", agent_outputs.get("orchestrator", {}))
+            render_agent_output("Trend Analyst", agent_outputs.get("trend_analyst", {}))
+            render_agent_output("Anomaly Detector", agent_outputs.get("anomaly_detector", {}))
+            render_agent_output("Report Writer", agent_outputs.get("report_writer", {}), expanded=True)
 
             report_data = {
                 "dataset_period": summary["date_range"],
