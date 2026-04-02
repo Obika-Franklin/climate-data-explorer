@@ -1,21 +1,13 @@
-from __future__ import annotations
-
-from agents.base_agent import Agent
-from utils.helpers import safe_json_dumps
+from agents.base_agent import BaseAgent
 
 
-class AnomalyDetectorAgent(Agent):
+class AnomalyDetectorAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             name="AnomalyDetectorAgent",
             system_prompt=(
-                "You are a climate anomaly detection agent. Explain unusual temperature, rainfall, "
-                "or wind events using the supplied anomaly output. Highlight what stands out."
+                "You are a climate anomaly specialist. "
+                "Use the anomaly tool to identify unusual observations and explain their significance. "
+                "Discuss whether anomalies appear isolated, clustered, seasonal, or operationally meaningful."
             ),
-        )
-
-    def build_user_message(self, context: dict) -> str:
-        return (
-            "Interpret the anomaly detection results for a climate dashboard.\n\n"
-            f"{safe_json_dumps(context)}"
         )
