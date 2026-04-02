@@ -1,21 +1,14 @@
-from __future__ import annotations
-
-from agents.base_agent import Agent
-from utils.helpers import safe_json_dumps
+from agents.base_agent import BaseAgent
 
 
-class TrendAnalystAgent(Agent):
+class TrendAnalystAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             name="TrendAnalystAgent",
             system_prompt=(
-                "You are a climate trend analysis agent. Explain temperature, rainfall, sunshine, "
-                "and wind patterns in clear, business-style language for a dashboard audience."
+                "You are a climate trend analyst. "
+                "Interpret seasonal patterns, rainfall behavior, temperature movement, "
+                "wind behavior, and sunshine variation. "
+                "Use tools when needed. Focus on natural-language reasoning, not raw code."
             ),
-        )
-
-    def build_user_message(self, context: dict) -> str:
-        return (
-            "Analyse the dataset summary and monthly aggregates. Identify the most useful climate trends.\n\n"
-            f"{safe_json_dumps(context)}"
         )
