@@ -98,7 +98,7 @@ To run locally, create a `.streamlit/secrets.toml` file:
 AZURE_OPENAI_API_KEY="your_api_key"
 AZURE_OPENAI_ENDPOINT="https://your-resource-name.openai.azure.com/"
 AZURE_OPENAI_DEPLOYMENT="your_deployment_name"
-AZURE_OPENAI_API_VERSION="2024-02-01"
+AZURE_OPENAI_API_VERSION="Your_api_version"
 ```
 
 ---
@@ -109,52 +109,6 @@ AZURE_OPENAI_API_VERSION="2024-02-01"
 pip install -r requirements.txt
 streamlit run app.py
 ```
-
----
-
-## Safety Considerations
-
-* AI-generated insights may be inaccurate or incomplete
-* Users are advised to verify results using charts and raw data
-* The system includes fallback logic when AI is unavailable
-
----
-
-## Project Structure
-
-```
-climate-data-explorer/
-│
-├── app.py
-├── requirements.txt
-├── README.md
-├── data/
-├── agents/
-├── tools/
-├── utils/
-└── .streamlit/
-```
-
----
-
-## 🎓 Learning Outcomes
-
-This project demonstrates:
-
-* Multi-agent system design
-* LLM integration with Azure OpenAI
-* Data analysis and visualization
-* Building production-grade dashboards with Streamlit
-* Structuring AI workflows for real-world applications
-
----
-
-## Acknowledgements
-
-* Streamlit for rapid dashboard development
-* Azure OpenAI for LLM capabilities
-* Public climate datasets for real-world data
-
 ---
 
 ## Connect with me
